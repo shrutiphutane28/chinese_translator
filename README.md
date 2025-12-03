@@ -1,1 +1,1 @@
-English to Chinese text and csv translator
+English to Chinese excel, text and csv translator
