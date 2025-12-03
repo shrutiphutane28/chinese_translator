@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from deep_translator import GoogleTranslator
-from io import StringIO
+from io import StringIO, BytesIO
 import time
 
 # -------------------------------------------------------------
@@ -59,15 +59,43 @@ def translate_txt_file(uploaded_file, translator):
     translated = translate_text_string(content, translator)
     return translated
 
+def translate_excel_file(uploaded_file, translator):
+    """
+    Translate all sheets in an Excel file using openpyxl backend (no xlsxwriter needed).
+    - Translates column headers
+    - Translates all cell values
+    """
+    sheets = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
+
+    translated_sheets = {}
+    for sheet_name, df in sheets.items():
+        # Translate headers
+        new_cols = [translate_text_string(col, translator) for col in df.columns]
+        df.columns = new_cols
+
+        # Translate all cell values
+        df = df.apply(lambda col: col.map(lambda v: translate_text_string(v, translator)))
+        translated_sheets[sheet_name] = df
+
+    # Write to an Excel file using openpyxl
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        for sheet_name, df in translated_sheets.items():
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+    buffer.seek(0)
+    return buffer.getvalue()
+
 
 # -------------------------------------------------------------
 # Streamlit UI
 # -------------------------------------------------------------
-def main():
-    st.set_page_config(page_title="CSV/TXT Translator", page_icon="🌐", layout="centered")
 
-    st.title("🌐 CSV / TXT Translator")
-    st.write("Upload a `.csv` or `.txt` file and translate it using Google Translator via `deep-translator`.")
+def main():
+    st.set_page_config(page_title="CSV/TXT/Excel Translator", page_icon="🌐", layout="centered")
+
+    st.title("🌐 CSV / TXT / Excel Translator")
+    st.write("Upload a `.csv`, `.txt` or Excel (`.xlsx`/`.xls`) file and translate it using Google Translator via `deep-translator`.")
 
     # Language selection
     col1, col2 = st.columns(2)
@@ -76,7 +104,10 @@ def main():
     with col2:
         target_lang = st.text_input("Target language (e.g. 'zh-CN')", value="zh-CN")
 
-    uploaded_file = st.file_uploader("Upload CSV or TXT file", type=["csv", "txt"])
+    uploaded_file = st.file_uploader(
+        "Upload CSV, TXT, or Excel file",
+        type=["csv", "txt", "xlsx", "xls"]
+    )
 
     if uploaded_file is not None:
         st.info(f"Detected file: `{uploaded_file.name}`")
@@ -86,7 +117,9 @@ def main():
                 translator = get_translator(source_lang, target_lang)
 
                 filename = uploaded_file.name
-                if filename.lower().endswith(".csv"):
+                lower_name = filename.lower()
+
+                if lower_name.endswith(".csv"):
                     try:
                         translated_content = translate_csv_file(uploaded_file, translator)
                         out_name = filename.rsplit(".", 1)[0] + "_translated.csv"
@@ -101,7 +134,7 @@ def main():
                     except Exception as e:
                         st.error(f"Error translating CSV: {e}")
 
-                elif filename.lower().endswith(".txt"):
+                elif lower_name.endswith(".txt"):
                     try:
                         translated_content = translate_txt_file(uploaded_file, translator)
                         out_name = filename.rsplit(".", 1)[0] + "_translated.txt"
@@ -115,8 +148,24 @@ def main():
                         )
                     except Exception as e:
                         st.error(f"Error translating TXT: {e}")
+
+                elif lower_name.endswith(".xlsx") or lower_name.endswith(".xls"):
+                    try:
+                        translated_content = translate_excel_file(uploaded_file, translator)
+                        out_name = filename.rsplit(".", 1)[0] + "_translated.xlsx"
+                        st.success("✅ Excel translation complete!")
+
+                        st.download_button(
+                            label="⬇️ Download translated Excel",
+                            data=translated_content,
+                            file_name=out_name,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+                    except Exception as e:
+                        st.error(f"Error translating Excel: {e}")
+
                 else:
-                    st.error("❌ Unsupported file type. Only .csv and .txt are supported.")
+                    st.error("❌ Unsupported file type. Only .csv, .txt, .xlsx, and .xls are supported.")
 
 
 if __name__ == "__main__":
